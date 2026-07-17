@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Space Suspicion - Le Jeu 2D</title>
+    <title>Space Suspicion - Édition Power-Ups</title>
     <style>
         body {
             background-color: #0b0e14;
@@ -28,61 +28,103 @@
             margin: 0 0 15px 0;
             font-size: 14px;
         }
-        /* Zone de dessin du jeu (Le Canvas) */
         canvas {
-            background-color: #111424;
+            background-color: #090b11;
             border: 3px solid #5865F2;
             border-radius: 8px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.7);
-            display: block;
+            display: none;
         }
         .controls {
             margin-top: 10px;
             font-size: 13px;
             color: #57f287;
         }
+        #startScreen {
+            background-color: #151a26;
+            padding: 30px;
+            border-radius: 12px;
+            border: 2px solid #5865F2;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            background-color: #0b0e14;
+            color: white;
+            font-size: 16px;
+            margin-bottom: 15px;
+            text-align: center;
+            width: 200px;
+        }
+        .btn {
+            background-color: #5865F2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn:hover {
+            background-color: #4752c4;
+        }
     </style>
 </head>
 <body>
 
     <h1>🚀 SPACE SUSPICION 🚀</h1>
-    <p>Survis le plus longtemps possible face aux traîtres !</p>
+    <p>Chopes les bonus et survis aux traîtres le plus longtemps possible !</p>
 
-    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <div id="startScreen">
+        <h3 style="margin-top:0;">Choisis ton Pseudo d'Astronaute :</h3>
+        <input type="text" id="usernameInput" placeholder="Ex: Player1" maxlength="12"><br>
+        <button class="btn" onclick="startGame()">Lancer la partie 🎮</button>
+    </div>
+
+    <canvas id="gameCanvas" width="700" height="450"></canvas>
 
     <div class="controls">
-        ⌨️ Contrôles : Déplacement avec <strong>Z, Q, S, D</strong> ou les <strong>Flèches directionnelles</strong>
+        ⌨️ Déplacement : <strong>Z, Q, S, D</strong> ou <strong>Flèches</strong> | 🧪 Vert = Boost de Vitesse | 🛡️ Cyan = Bouclier protecteur
     </div>
 
 <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
 
-    // État du jeu
     let gameOver = false;
     let score = 0;
-    let gameLoopActive = true;
+    let gameLoopActive = false;
+    let username = "Astronaute";
 
-    // Configuration du Joueur (Le Crewmate Bleu)
+    // Étoiles de fond
+    let stars = [];
+    for(let i=0; i<40; i++) {
+        stars.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, size: Math.random()*2 });
+    }
+
+    // Propriétés du Joueur
     const player = {
         x: canvas.width / 2,
         y: canvas.height / 2,
         radius: 12,
+        baseSpeed: 4,
         speed: 4,
-        color: "#5865F2"
+        color: "#5865F2",
+        hasShield: false,
+        speedBoostTimer: 0
     };
 
-    // Liste des ennemis (Les Traîtres Rouges)
     let enemies = [];
-    let enemySpawnRate = 1500; // Un ennemi toutes les 1.5 secondes au début
+    let powerUps = [];
+    let enemySpawnRate = 1400;
     let lastSpawnTime = 0;
-    let baseEnemySpeed = 1.5;
+    let lastPowerUpTime = 0;
 
-    // Gestion des touches du clavier
-    const keys = {
-        w: false, a: false, s: false, d: false,
-        ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false
-    };
+    const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
 
     window.addEventListener("keydown", (e) => {
         if (e.key === "z" || e.key === "Z") keys.w = true;
@@ -100,67 +142,120 @@
         if (e.key in keys) keys[e.key] = false;
     });
 
-    // Fonction pour générer un ennemi sur les bords de l'écran
+    function startGame() {
+        const input = document.getElementById("usernameInput").value.trim();
+        if (input !== "") username = input;
+        document.getElementById("startScreen").style.display = "none";
+        canvas.style.display = "block";
+        gameLoopActive = true;
+        requestAnimationFrame((timestamp) => {
+            lastSpawnTime = timestamp;
+            lastPowerUpTime = timestamp;
+            gameLoop(timestamp);
+        });
+    }
+
     function spawnEnemy() {
-        let x, y;
+        let x = Math.random() < 0.5 ? 0 : canvas.width;
+        let y = Math.random() * canvas.height;
         if (Math.random() < 0.5) {
-            x = Math.random() < 0.5 ? 0 : canvas.width;
-            y = Math.random() * canvas.height;
-        } else {
             x = Math.random() * canvas.width;
             y = Math.random() < 0.5 ? 0 : canvas.height;
         }
-
         enemies.push({
-            x: x,
-            y: y,
-            radius: 12,
-            speed: baseEnemySpeed + (score * 0.05), // Ils accélèrent selon le score
+            x: x, y: y, radius: 12,
+            speed: 1.6 + (score * 0.04),
             color: "#ed4245"
         });
     }
 
-    // Déplacement du joueur
+    function spawnPowerUp() {
+        const types = ["speed", "shield"];
+        const selectedType = types[Math.floor(Math.random() * types.length)];
+        powerUps.push({
+            x: 50 + Math.random() * (canvas.width - 100),
+            y: 50 + Math.random() * (canvas.height - 100),
+            radius: 8,
+            type: selectedType,
+            color: selectedType === "speed" ? "#57f287" : "#00ffff"
+        });
+    }
+
     function updatePlayer() {
+        // Gérer le timer du boost de vitesse
+        if (player.speedBoostTimer > 0) {
+            player.speedBoostTimer--;
+            player.speed = player.baseSpeed * 1.6;
+        } else {
+            player.speed = player.baseSpeed;
+        }
+
         if (keys.w || keys.ArrowUp) player.y -= player.speed;
         if (keys.s || keys.ArrowDown) player.y += player.speed;
         if (keys.a || keys.ArrowLeft) player.x -= player.speed;
         if (keys.d || keys.ArrowRight) player.x += player.speed;
 
-        // Empêcher de sortir des limites de la map
         if (player.x - player.radius < 0) player.x = player.radius;
         if (player.x + player.radius > canvas.width) player.x = canvas.width - player.radius;
         if (player.y - player.radius < 0) player.y = player.radius;
         if (player.y + player.radius > canvas.height) player.y = canvas.height - player.radius;
     }
 
-    // IA et mouvements des ennemis
-    function updateEnemies() {
-        for (let i = 0; i < enemies.length; i++) {
+    function updateEntities() {
+        // Ennemis IA
+        for (let i = enemies.length - 1; i >= 0; i--) {
             let e = enemies[i];
-
-            // Calculer la direction vers le joueur
             let dx = player.x - e.x;
             let dy = player.y - e.y;
             let distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Déplacement vers le joueur
             if (distance > 0) {
                 e.x += (dx / distance) * e.speed;
                 e.y += (dy / distance) * e.speed;
             }
 
-            // Vérifier la collision avec le joueur (Game Over)
-            let collisionDistance = player.radius + e.radius;
-            if (distance < collisionDistance) {
-                gameOver = true;
-                gameLoopActive = false;
+            // Collisions Joueur / Ennemis
+            if (distance < player.radius + e.radius) {
+                if (player.hasShield) {
+                    player.hasShield = false; // Le bouclier absorbe le coup
+                    enemies.splice(i, 1); // Détruire l'ennemi
+                } else {
+                    gameOver = true;
+                    gameLoopActive = false;
+                    saveLeaderboard(username, score);
+                }
+            }
+        }
+
+        // Collisions Joueur / Power-ups
+        for (let i = powerUps.length - 1; i >= 0; i--) {
+            let p = powerUps[i];
+            let dx = player.x - p.x;
+            let dy = player.y - p.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < player.radius + p.radius) {
+                if (p.type === "speed") {
+                    player.speedBoostTimer = 300; // ~5 secondes à 60fps
+                } else if (p.type === "shield") {
+                    player.hasShield = true;
+                }
+                powerUps.splice(i, 1);
             }
         }
     }
 
-    // Dessiner un petit astronaute simplifié (Cercle + Visière)
     function drawAstronaut(x, y, radius, color, isPlayer) {
+        // Dessin du bouclier si actif
+        if (isPlayer && player.hasShield) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius + 6, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(0, 255, 255, 0.6)";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.closePath();
+        }
+
         // Corps
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -168,74 +263,112 @@
         ctx.fill();
         ctx.closePath();
 
-        // Visière
+        // Visor
         ctx.beginPath();
         ctx.arc(x + (isPlayer ? 4 : -4), y - 2, radius / 2, 0, Math.PI * 2);
-        ctx.fillStyle = "#8cc6ff";
+        ctx.fillStyle = player.speedBoostTimer > 0 && isPlayer ? "#57f287" : "#8cc6ff";
         ctx.fill();
         ctx.closePath();
     }
 
-    // Fonction principale de mise à jour du jeu (Boucle)
     function gameLoop(timestamp) {
         if (!gameLoopActive) {
             drawGameOver();
             return;
         }
 
-        // Nettoyer l'écran à chaque frame
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Faire apparaître les ennemis avec le temps
-        if (timestamp - lastSpawnTime > Math.max(400, enemySpawnRate - score * 10)) {
+        // Dessiner le fond étoilé
+        ctx.fillStyle = "white";
+        stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
+
+        // Spawns rythmés
+        if (timestamp - lastSpawnTime > Math.max(350, enemySpawnRate - score * 8)) {
             spawnEnemy();
             lastSpawnTime = timestamp;
-            score++; // Le score augmente à chaque ennemi apparu
+            score++;
+        }
+        if (timestamp - lastPowerUpTime > 7000) { // Un bonus toutes les 7 secondes
+            spawnPowerUp();
+            lastPowerUpTime = timestamp;
         }
 
-        // Mettre à jour les entités
         updatePlayer();
-        updateEnemies();
+        updateEntities();
 
-        // Dessiner le joueur
-        drawAstronaut(player.x, player.y, player.radius, player.color, true);
-
-        // Dessiner tous les ennemis
-        enemies.forEach(e => {
-            drawAstronaut(e.x, e.y, e.radius, e.color, false);
+        // Dessins
+        powerUps.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.fill();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = p.color;
+            ctx.fill();
+            ctx.shadowBlur = 0; // Reset ombre
+            ctx.closePath();
         });
 
-        // Dessiner le Score actuel
-        ctx.fillStyle = "white";
-        ctx.font = "bold 16px Arial";
-        ctx.fillText(`Score: ${score}`, 20, 30);
+        drawAstronaut(player.x, player.y, player.radius, player.color, true);
+        enemies.forEach(e => drawAstronaut(e.x, e.y, e.radius, e.color, false));
 
-        // Relancer la boucle au prochain rafraîchissement d'écran
+        // UI Textes
+        ctx.fillStyle = "white";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText(`Pilote: ${username}`, 20, 30);
+        ctx.fillText(`Score: ${score}`, 20, 50);
+        if(player.speedBoostTimer > 0) {
+            ctx.fillStyle = "#57f287";
+            ctx.fillText(`⚡ HYPER VITESSE ACTIVÉE !`, 20, 70);
+        }
+
         requestAnimationFrame(gameLoop);
     }
 
-    // Écran de fin de partie
+    function saveLeaderboard(name, finalScore) {
+        let leaderboard = JSON.parse(localStorage.getItem("spaceSuspicionLeaderboard")) || [];
+        leaderboard.push({ name: name, score: finalScore });
+        leaderboard.sort((a, b) => b.score - a.score);
+        leaderboard = leaderboard.slice(0, 5);
+        localStorage.setItem("spaceSuspicionLeaderboard", JSON.stringify(leaderboard));
+    }
+
     function drawGameOver() {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.fillStyle = "#ed4245";
-        ctx.font = "bold 30px Arial";
+        ctx.font = "bold 26px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("❌ TU AS ÉTÉ ÉLIMINÉ ! ❌", canvas.width / 2, canvas.height / 2 - 20);
+        ctx.fillText("❌ COMPTE À REBOURS ATTEINT ❌", canvas.width / 2, 50);
 
         ctx.fillStyle = "white";
-        ctx.font = "18px Arial";
-        ctx.fillText(`Score final : ${score}`, canvas.width / 2, canvas.height / 2 + 15);
-        ctx.font = "14px Arial";
-        ctx.fillText("Appuie sur F5 pour relancer une partie", canvas.width / 2, canvas.height / 2 + 50);
-    }
+        ctx.font = "16px Arial";
+        ctx.fillText(`${username}, tu as obtenu : ${score} points`, canvas.width / 2, 85);
 
-    // Lancement officiel du jeu
-    requestAnimationFrame((timestamp) => {
-        lastSpawnTime = timestamp;
-        gameLoop(timestamp);
-    });
+        ctx.fillStyle = "#fec20c";
+        ctx.font = "bold 18px Arial";
+        ctx.fillText("🏆 MEILLEURS PILOTES DE L'ESPACE 🏆", canvas.width / 2, 140);
+
+        let leaderboard = JSON.parse(localStorage.getItem("spaceSuspicionLeaderboard")) || [];
+        ctx.fillStyle = "white";
+        ctx.font = "15px Arial";
+        
+        if (leaderboard.length === 0) {
+            ctx.fillText("Aucune donnée enregistrée.", canvas.width / 2, 185);
+        } else {
+            leaderboard.forEach((entry, idx) => {
+                let text = `${idx + 1}. ${entry.name} : ${entry.score} pts`;
+                if(entry.name === username && entry.score === score) text += " ⭐ (Toi)";
+                ctx.fillText(text, canvas.width / 2, 185 + (idx * 25));
+            });
+        }
+
+        ctx.fillStyle = "#8b949e";
+        ctx.font = "13px Arial";
+        ctx.fillText("Rafraîchis la page pour relancer le moteur !", canvas.width / 2, 380);
+    }
 </script>
 
 </body>
